@@ -63,6 +63,8 @@ static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
 
+static struct list sleep_list;
+
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -108,6 +110,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init (&sleep_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -241,6 +244,7 @@ thread_unblock (struct thread *t) {
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
 	list_push_back (&ready_list, &t->elem);
+
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -409,6 +413,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+	t->wakeup_time = 0;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -587,4 +592,59 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+void
+thread_sleep (int64_t wake_time) 
+{
+  ASSERT (intr_get_level () == INTR_OFF);
+  struct thread *curr = thread_current ();
+  ASSERT(curr != idle_thread);
+  curr->wakeup_time = wake_time;//현재 스레드 가져옴
+
+  list_insert_ordered(&sleep_list, &curr->elem, compare_wake_time, NULL);
+  thread_block ();
+}
+
+void
+thread_unblock_front (struct thread *t) {
+	enum intr_level old_level;
+
+	ASSERT (is_thread (t));
+
+	old_level = intr_disable ();
+	ASSERT (t->status == THREAD_BLOCKED);
+	list_push_front (&ready_list, &t->elem);
+
+	t->status = THREAD_READY;
+	intr_set_level (old_level);
+}
+//
+void
+thread_wakeup (int64_t current_ticks) 
+{
+  	ASSERT (intr_get_level () == INTR_OFF);
+  	enum intr_level old_level;
+  	old_level = intr_disable();
+  
+  	struct list_elem *curr_elem = list_begin(&sleep_list);
+  	while (!list_empty (&sleep_list))
+  	{
+		struct thread *t = list_entry (list_front (&sleep_list), struct thread, elem);
+		if (t->wakeup_time > current_ticks)
+		break;
+		list_pop_front (&sleep_list);
+		thread_unblock (t);
+	}
+
+	intr_set_level(old_level);
+}
+
+
+static bool
+compare_wake_time (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  const struct thread *ta = list_entry(a, struct thread, elem);
+  const struct thread *tb = list_entry(b, struct thread, elem);
+  return ta->wakeup_time < tb->wakeup_time;
 }

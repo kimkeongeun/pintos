@@ -93,8 +93,27 @@ timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
 
 	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+
+	//이건 매 틱마다 확인함. 이걸 한번에 하도록 변경.
+	// while (timer_elapsed (start) < ticks) 
+	// 	thread_yield ();
+	
+	//1-1. 지금 스레드와 깨울 시간을 넣으면, 
+	//대기 리스트에 추가하고 블록 상태로 변경하는 함수를 만들 것
+	if (ticks <= 0) {
+    return;
+  	}
+
+	enum intr_level old_level = intr_disable();
+	thread_sleep(start + ticks);
+	intr_set_level(old_level);
+
+
+	//struct thread *current = thread_current();
+	// current-> wake_time = timer_ticks() + ticks;
+	// list_insert_ordered(&sleep_list, &current->elem, wake_time_less, NULL);
+   	//thread_block();
+   	//intr_set_level(old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -120,12 +139,13 @@ void
 timer_print_stats (void) {
 	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
+
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+	thread_wakeup(ticks);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
