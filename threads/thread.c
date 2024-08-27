@@ -208,6 +208,8 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+	if(thread_current()->priority < t->priority)
+		thread_yield();
 	return tid;
 }
 
@@ -243,9 +245,6 @@ thread_unblock (struct thread *t) {
 	ASSERT (t->status == THREAD_BLOCKED);
 	list_insert_ordered (&ready_list, &t->elem, list_priority_cmp, NULL);
 	t->status = THREAD_READY;
-
-	if(thread_current()->priority < t->priority && thread_current() != idle_thread)
-		thread_yield();
 	intr_set_level (old_level);
 }
 
@@ -604,8 +603,8 @@ void thread_sleep(int64_t time){
 	ASSERT(curr != idle_thread);
 	
 	old_level = intr_disable ();
-	curr->time =time;
-	list_push_back(&sleep_list, &curr->elem);
+	curr->time = time;
+	list_insert_ordered (&sleep_list, &curr->elem, list_time_cmp, NULL);
 	thread_block();
 	intr_set_level (old_level);
 }
@@ -620,14 +619,21 @@ void thread_wake(int64_t tick){
 			thread_unblock(curr);
 		}
 		else{			
-			list_ptr = list_next(list_ptr);
+			break;
 		}
 	}
 }
 
-static bool list_priority_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux)
+static bool list_priority_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux UNUSED)
 {
 	const struct thread *thread1 = list_entry(elem1, struct thread, elem);
 	const struct thread *thread2 = list_entry(elem2, struct thread, elem);
 	return thread1->priority > thread2->priority;
+}
+
+static bool list_time_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux)
+{
+	const struct thread *thread1 = list_entry(elem1, struct thread, elem);
+	const struct thread *thread2 = list_entry(elem2, struct thread, elem);
+	return thread1->time < thread2->time;
 }
