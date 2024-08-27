@@ -143,7 +143,12 @@ int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
 
+
+// void set_min_time(void);
+// int64_t get_min_time(void);
 void thread_sleep(int64_t time);
 void thread_wake(int64_t tick);
-static bool list_priority_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux UNUSED);
+void thread_preempt(void);
+bool list_priority_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux UNUSED);
+bool list_time_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux UNUSED);
 #endif /* threads/thread.h */
