@@ -50,6 +50,7 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
+
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -208,8 +209,7 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
-	if(thread_current()->priority < t->priority)
-		thread_yield();
+	thread_preempt();
 	return tid;
 }
 
@@ -315,9 +315,7 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
-	if(thread_current ()->priority < list_entry (list_begin (&ready_list), struct thread, elem)->priority) 
-		thread_yield();
-
+	thread_preempt();
 }
 
 /* Returns the current thread's priority. */
@@ -595,6 +593,17 @@ allocate_tid (void) {
 	return tid;
 }
 
+// void set_min_time(void){
+// 	if(!list_empty(&sleep_list))
+// 		min_time = list_entry(list_begin(&sleep_list), struct thread, elem)->time;
+// 	else
+// 		min_time = INT64_MAX;
+// }
+
+// int64_t get_min_time(void){
+// 	return min_time;
+// }
+
 void thread_sleep(int64_t time){
 	struct thread *curr = thread_current();
 	enum intr_level old_level;
@@ -624,14 +633,19 @@ void thread_wake(int64_t tick){
 	}
 }
 
-static bool list_priority_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux UNUSED)
+void thread_preempt(void){
+	if(!list_empty(&ready_list) && thread_current ()->priority < list_entry (list_begin (&ready_list), struct thread, elem)->priority) 
+		thread_yield();
+}
+
+bool list_priority_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux UNUSED)
 {
 	const struct thread *thread1 = list_entry(elem1, struct thread, elem);
 	const struct thread *thread2 = list_entry(elem2, struct thread, elem);
 	return thread1->priority > thread2->priority;
 }
 
-static bool list_time_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux)
+bool list_time_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux UNUSED)
 {
 	const struct thread *thread1 = list_entry(elem1, struct thread, elem);
 	const struct thread *thread2 = list_entry(elem2, struct thread, elem);
