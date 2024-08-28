@@ -66,7 +66,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_insert_ordered (&sema->waiters, &thread_current ()->elem, list_priority_cmp, NULL);
+		list_push_back (&sema->waiters, &thread_current ()->elem);
 		thread_block ();
 	}
 	sema->value--;
@@ -109,9 +109,11 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)){
+		struct list_elem *temp_elem = list_max(&sema->waiters, sema_priority_cmp, NULL);
+		list_remove(temp_elem);
+		thread_unblock (list_entry(temp_elem, struct thread, elem));
+	}
 	sema->value++;
 	thread_preempt();
 	intr_set_level (old_level);
@@ -189,8 +191,24 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	if(lock->holder != NULL){
+		thread_current()->lock_lock = lock;
+		struct lock* curr_lock = lock;
+		while(curr_lock != NULL){
+			if(curr_lock->holder->priority < thread_current()->priority) {
+				curr_lock->holder->priority = thread_current()->priority;
+				curr_lock->priority = thread_current()->priority;
+			}
+			curr_lock = curr_lock->holder->lock_lock;
+		}
+	}
+
 	sema_down (&lock->semaphore);
+	//내가 이 락 먹었으니까 이 락의 우선순위는 내 오리진_우선순위고 내 스레드 안의 리스에 이 락 추가 시켜
 	lock->holder = thread_current ();
+	lock->priority = thread_current()->original_priority;
+	thread_current()->lock_lock = NULL;
+	list_push_back(&thread_current()->lock_hold, &lock->elem);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -223,10 +241,23 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
+	// 스레드의 리스트에서 elem을 지워줌. priority update
+	list_remove(&lock->elem);
+	if(list_empty(&lock->holder->lock_hold)) 	
+		lock->holder->priority = lock->holder->original_priority;
+	else{
+		lock->holder->priority = list_entry(list_max(&lock->holder->lock_hold, lock_priority_cmp, NULL), struct lock, elem)->priority;
+	}
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
 
+bool lock_priority_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux){
+	struct lock *l1 = list_entry(elem1, struct lock, elem);
+	struct lock *l2 = list_entry(elem1, struct lock, elem);
+
+	return l1->priority < l2->priority;
+}
 /* Returns true if the current thread holds LOCK, false
    otherwise.  (Note that testing whether some other thread holds
    a lock would be racy.) */
@@ -287,7 +318,7 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
-}
+} 
 
 /* If any threads are waiting on COND (protected by LOCK), then
    this function signals one of them to wake up from its wait.
@@ -309,7 +340,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 		list_remove(&sem->elem);
 		sema_up (&sem->semaphore);
 	}
-		
+	
 }
 
 
@@ -319,7 +350,15 @@ bool cond_priority_cmp(const struct list_elem *elem1, const struct list_elem *el
 	struct semaphore_elem *sem2 = list_entry(elem2, struct semaphore_elem, elem);
 	struct thread *t1 = list_entry(list_begin(&sem1->semaphore.waiters), struct thread, elem);
 	struct thread *t2 = list_entry(list_begin(&sem2->semaphore.waiters), struct thread, elem);
+	
+	return t1->priority < t2->priority;
+}
 
+bool sema_priority_cmp(const struct list_elem *elem1, const struct list_elem *elem2, void *aux)
+{
+	struct thread *t1 = list_entry(elem1, struct thread, elem);
+	struct thread *t2 = list_entry(elem2, struct thread, elem);
+	
 	return t1->priority < t2->priority;
 }
 /* Wakes up all threads, if any, waiting on COND (protected by
