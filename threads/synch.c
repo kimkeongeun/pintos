@@ -32,6 +32,10 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+
+bool sema_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -66,7 +70,8 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current ()->elem, compare_priority, NULL);
+		//list_push_back (&sema->waiters, &thread_current ()->elem);
 		thread_block ();
 	}
 	sema->value--;
@@ -109,10 +114,12 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)){
+		list_sort (&sema->waiters, compare_priority, 0);
+		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+	}
 	sema->value++;
+	next_priority_yield();
 	intr_set_level (old_level);
 }
 
@@ -188,6 +195,15 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	//지금 잠겨있나?
+	if(lock->holder != NULL){
+		//잠근 쓰레드가 나보다 낮은가? 그렇다면 우선순위 양도
+		//필요한거. 1.우선순위 2.기부해준 스레드
+		lock->holder->donate_t = thread_current (); //기부한 스레드
+		lock->holder->backup_priority=lock->holder->priority; //자기 원래 우선순위 
+		lock->holder->priority = thread_get_priority();
+		thread_current ()->priority = lock->holder->backup_priority;
+	}
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
 }
@@ -222,6 +238,12 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
+	if(lock->holder->donate_t != NULL){
+		//기부받았다면 복구해야함
+		lock->holder->donate_t->priority = lock->holder->priority;
+		lock->holder->donate_t = NULL;
+		thread_current ()->priority = lock->holder->backup_priority;
+	}
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
@@ -282,6 +304,7 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
+	//list_insert_ordered(&cond->waiters, &waiter.elem, compare_wake_time, NULL);
 	list_push_back (&cond->waiters, &waiter.elem);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
@@ -302,9 +325,11 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+	if (!list_empty (&cond->waiters)){
+		list_sort (&cond->waiters, sema_compare_priority, 0);
+		sema_up (&list_entry (list_pop_front (&cond->waiters), 
+			struct semaphore_elem, elem)->semaphore);
+	}
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -320,4 +345,17 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 
 	while (!list_empty (&cond->waiters))
 		cond_signal (cond, lock);
+}
+
+
+bool 
+sema_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+	struct list *a_sema = &(list_entry (a, struct semaphore_elem, elem)->semaphore.waiters);
+	struct list *b_sema = &(list_entry (b, struct semaphore_elem, elem)->semaphore.waiters);
+
+	struct thread *ta = list_entry(list_begin (a_sema), struct thread, elem);
+  	struct thread *tb = list_entry(list_begin (b_sema), struct thread, elem);
+
+	return ta->priority > tb->priority;
 }

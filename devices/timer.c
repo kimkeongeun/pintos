@@ -107,13 +107,6 @@ timer_sleep (int64_t ticks) {
 	enum intr_level old_level = intr_disable();
 	thread_sleep(start + ticks);
 	intr_set_level(old_level);
-
-
-	//struct thread *current = thread_current();
-	// current-> wake_time = timer_ticks() + ticks;
-	// list_insert_ordered(&sleep_list, &current->elem, wake_time_less, NULL);
-   	//thread_block();
-   	//intr_set_level(old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
