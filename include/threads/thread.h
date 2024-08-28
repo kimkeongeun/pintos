@@ -28,6 +28,28 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+/*Thread awake, sleep*/
+// 실행 중인 스레드를 슬립으로 재운다.
+void thread_sleep(int64_t ticks);
+// 슬립 큐에서 깨워야 할 스레드를 깨운다.
+void thread_awake(int64_t ticks);
+// 최소 틱을 가진 스레드를 저장한다.
+void update_next_tick_to_awake(int64_t ticks);
+// thread.c의 next_tick_to_awake를 반환
+int64_t get_next_tick_to_awake(void);
+
+static int64_t next_tick_to_awake;
+
+static long long next_tick_to_awake;
+
+/* Priority Scheduling*/ 
+// 현재 실행 중인 스레드와 가장 우선순위가 높은 스레드의 우선순위를 비교하여, CPU가 해당 프로세스를 스케쥴링한다.
+void check_max_priority(void);
+
+// 서로 다른 프로세스 간 우선순위를 비교한다.
+bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+
+
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -107,6 +129,9 @@ struct thread {
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
+
+	/* Wakeup tick*/
+	int64_t wakeup_tick;
 };
 
 /* If false (default), use round-robin scheduler.

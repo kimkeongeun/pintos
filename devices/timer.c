@@ -88,13 +88,21 @@ timer_elapsed (int64_t then) {
 }
 
 /* Suspends execution for approximately TICKS timer ticks. */
+// Ready List라는 하나의 리스트에서만 sleep / awake할 스레드를 관리하기 때문에,
+// Sleep List 라는 추가적인 리스트를 만들어서 sleep할 스레드를 저장하는 방식으로 timer를 구현한다. 
 void
 timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
+	/* Busy-wait method
+	ASSERT (intr_get_level () == INTR_ON); // 인터럽트가 발생할 때만 함수를 실행한다.
+	while (timer_elapsed (start) < ticks)  // start로부터 tick 이전의 시간까지, CPU를 다른 프로세스에게 양보한다.
+		thread_yield ();				   // CPU 를 양보한다. 
+	*/
 
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	// Sleep-awake method
+	ASSERT(intr_get_level() == INTR_ON);  // 인터럽트 켜놨는지 확인.
+	thread_sleep(start + ticks);		  // start에서부터 ticks시간만큼 재운다.
+
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -126,6 +134,14 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+
+	int64_t next_tick;
+	next_tick = get_next_tick_to_awake();	// 다음에 깨워야할 스레드 중에서 가장 짧은 시간을 next_tick변수에 저장한다.
+
+	if (ticks >= next_tick){				// next_tick만큼의 tick시간이 지나면, 해당 스레드를 깨워서 ready_list에 넣어서 실행할 준비를 시킨다.
+		thread_awake(ticks);				// 
+	}
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
