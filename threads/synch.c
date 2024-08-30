@@ -195,14 +195,19 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
-	//지금 잠겨있나?
-	if(lock->holder != NULL){
-		//잠근 쓰레드가 나보다 낮은가? 그렇다면 우선순위 양도
-		//필요한거. 1.우선순위 2.기부해준 스레드
-		lock->holder->donate_t = thread_current (); //기부한 스레드
-		lock->holder->backup_priority=lock->holder->priority; //자기 원래 우선순위 
-		lock->holder->priority = thread_get_priority();
-		thread_current ()->priority = lock->holder->backup_priority;
+	//잠겨있다면
+	if(lock->holder){
+		struct thread *curr = thread_current ();
+
+		//우선순위 교환
+		int p = lock->holder->priority;
+		lock->holder->priority = curr->priority;
+		curr->priority = p;
+		
+		curr->mylock = lock;
+
+		//기부자 대기열에 넣음
+		list_push_front(&lock->holder->donation_list, &curr->donation_elem);
 	}
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
@@ -237,15 +242,31 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
+	
+	struct thread *curr = thread_current();
+	int c_priority = curr->priority;
 
-	if(lock->holder->donate_t != NULL){
-		//기부받았다면 복구해야함
-		lock->holder->donate_t->priority = lock->holder->priority;
-		lock->holder->donate_t = NULL;
-		thread_current ()->priority = lock->holder->backup_priority;
+	//리스트가 차 있음. 즉, 기부받은 적이 있음.
+	while(!list_empty(&lock->holder->donation_list)){
+
+		struct thread *donation_thread = list_entry (list_front (&lock->holder->donation_list), struct thread, donation_elem);
+
+		//원하는 락이 해제되었는지? 
+		//한번만 돌면 안되고, 해당 락을 전부 해야함. 
+		if(donation_thread->mylock == lock || donation_thread->mylock->holder == NULL){
+			int p = c_priority;
+			c_priority = donation_thread->priority;
+			donation_thread->priority = p;
+
+			//이거 remove로 바꿀것
+			list_remove(&donation_thread->donation_elem);
+		}else{
+			break;
+		}
 	}
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
+	thread_set_priority(c_priority);
 }
 
 /* Returns true if the current thread holds LOCK, false

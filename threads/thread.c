@@ -318,13 +318,14 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
+	//순서 확인함 하기
 	next_priority_yield();
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
-	return thread_current ()->priority;
+	return thread_current()->priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -416,9 +417,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
 	t->wakeup_time = 0;
-	t->donate_t = NULL; //기부한 스레드
-	t->backup_priority=priority; //자기 원래 우선순위 
+
+	t->base_priority=priority; //자기 원래 우선순위 
+	t->mylock = NULL;
+	list_init(&t->donation_list); //기부 스레드 대기열
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -648,7 +652,23 @@ compare_priority (const struct list_elem *a, const struct list_elem *b, void *au
   return ta->priority > tb->priority;
 }
 
+bool
+compare_donation_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  const struct thread *ta = list_entry(a, struct thread, donation_elem);
+  const struct thread *tb = list_entry(b, struct thread, donation_elem);
+  return ta->priority > tb->priority;
+}
+
 void next_priority_yield(void){
+	list_sort(&ready_list, compare_priority, NULL); 
 	if (!list_empty (&ready_list) && thread_current ()->priority < list_entry(list_front (&ready_list), struct thread, elem)->priority)
         thread_yield ();
+}
+
+//우선순위 교체 함수
+void change_priority(struct thread *t1, struct thread *t2) {
+	int p = t1->priority;
+	t1->priority = t2->priority;
+	t2->priority = p;
 }
