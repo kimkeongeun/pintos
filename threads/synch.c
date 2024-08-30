@@ -199,16 +199,24 @@ lock_acquire (struct lock *lock) {
 	if(lock->holder){
 		struct thread *curr = thread_current ();
 
-		//우선순위 교환
-		int p = lock->holder->priority;
-		lock->holder->priority = curr->priority;
-		curr->priority = p;
-		
 		curr->mylock = lock;
-
+		
 		//기부자 대기열에 넣음
 		list_push_front(&lock->holder->donation_list, &curr->donation_elem);
+		
+		//우선순위 교환
+		for (int depth = 0; depth < 8; depth++){
+			if(!curr->mylock)
+				break;
+			//우선순위 계속해서 양도
+			struct thread *holder = curr->mylock->holder;
+			holder->priority = curr->priority;
+			curr = holder;
+		}
+
 	}
+
+
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
 }
@@ -244,7 +252,6 @@ lock_release (struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 	
 	struct thread *curr = thread_current();
-	int c_priority = curr->priority;
 
 	//리스트가 차 있음. 즉, 기부받은 적이 있음.
 	while(!list_empty(&lock->holder->donation_list)){
@@ -254,20 +261,21 @@ lock_release (struct lock *lock) {
 		//원하는 락이 해제되었는지? 
 		//한번만 돌면 안되고, 해당 락을 전부 해야함. 
 		if(donation_thread->mylock == lock || donation_thread->mylock->holder == NULL){
-			int p = c_priority;
-			c_priority = donation_thread->priority;
-			donation_thread->priority = p;
-
-			//이거 remove로 바꿀것
+			//우선순위 복구
+			priority_recovery(donation_thread);
 			list_remove(&donation_thread->donation_elem);
 		}else{
 			break;
 		}
 	}
+
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
-	thread_set_priority(c_priority);
+	priority_recovery(curr);
+	next_priority_yield();
 }
+
+
 
 /* Returns true if the current thread holds LOCK, false
    otherwise.  (Note that testing whether some other thread holds

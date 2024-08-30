@@ -157,4 +157,5 @@ bool compare_priority (const struct list_elem *a, const struct list_elem *b, voi
 bool compare_donation_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 void next_priority_yield(void);
 void change_priority(struct thread *t1, struct thread *t2);
+void priority_recovery(struct thread *curr);
 #endif /* threads/thread.h */

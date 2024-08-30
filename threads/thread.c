@@ -317,7 +317,9 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	//thread_current ()->priority = new_priority;
+	thread_current ()-> base_priority = new_priority;
+	priority_recovery(thread_current ());
 	//순서 확인함 하기
 	next_priority_yield();
 }
@@ -671,4 +673,15 @@ void change_priority(struct thread *t1, struct thread *t2) {
 	int p = t1->priority;
 	t1->priority = t2->priority;
 	t2->priority = p;
+}
+
+//우선순위 되돌리는 함수
+void priority_recovery(struct thread *curr){
+	if(!list_empty(&curr->donation_list)){
+		//리스트 비어있으면 그 맨 앞에서 양도받음
+		curr->priority = list_entry(list_front (&curr->donation_list), struct thread, donation_elem)->priority;
+	}else{
+		//아니면 자기 원래 우선순위로 돌아감.
+		curr->priority = curr->base_priority;
+	}
 }
