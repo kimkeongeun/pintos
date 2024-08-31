@@ -82,6 +82,29 @@ static tid_t allocate_tid (void);
 // setup temporal gdt first.
 static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
 
+
+//고정 소수점 관련
+#define F (1 << 14)               // 2^14 값을 정의 (14는 소수부의 비트 수)
+#define INT_TO_FP(n) ((n) * F) // 정수를 고정 소수점 수로 변환
+#define FP_TO_INT(x) ((x) / F) // 고정 소수점 수를 정수로 변환 (0에 가까운 정수로)
+
+// 고정 소수점 수를 반올림하여 정수로 변환
+#define FP_TO_INT_ROUND(x) (((x) >= 0 ? ((x) + F / 2) : ((x) - F / 2)) / F)
+
+// 사칙연산 (고정 소수점 수 끼리)
+#define FP_ADD(x, y) ((x) + (y))
+#define FP_SUB(x, y) ((x) - (y))
+#define FP_MUL(x, y) (((int64_t) (x)) * (y) / F)
+#define FP_DIV(x, y) (((int64_t) (x)) * F / (y))
+
+// 사칙연산(고정 소수점 수와 정수)
+#define FP_ADD_INT(x, n) ((x) + (n) * F)
+#define FP_SUB_INT(x, n) ((x) - (n) * F)
+#define FP_MUL_INT(x, n) ((x) * (n))
+#define FP_DIV_INT(x, n) ((x) / (n))
+
+
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -113,10 +136,15 @@ thread_init (void) {
 	list_init (&ready_list);
 	list_init (&sleep_list);
 	list_init (&destruction_req);
+	
+	//멀티레벨 위함
+	load_avg = 0;
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
 	init_thread (initial_thread, "main", PRI_DEFAULT);
+	initial_thread->recent_cpu = 0;
+	initial_thread->nice = 0;
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
 }
@@ -154,8 +182,11 @@ thread_tick (void) {
 		kernel_ticks++;
 
 	/* Enforce preemption. */
-	if (++thread_ticks >= TIME_SLICE)
+	if (++thread_ticks >= TIME_SLICE){
+		if(t!=idle_thread)
+			calculating_priority(t);
 		intr_yield_on_return ();
+	}
 }
 
 /* Prints thread statistics. */
@@ -194,8 +225,15 @@ thread_create (const char *name, int priority,
 		return TID_ERROR;
 
 	/* Initialize thread. */
-	init_thread (t, name, priority);
+	if(thread_mlfqs){
+		init_thread (t, name, PRI_DEFAULT);
+	}else{
+		init_thread (t, name, priority);
+	}
+	t->recent_cpu = thread_get_recent_cpu();
+	t->nice = thread_get_nice();
 	tid = t->tid = allocate_tid ();
+
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -317,10 +355,14 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	//thread_current ()->priority = new_priority;
-	thread_current ()-> base_priority = new_priority;
-	priority_recovery(thread_current ());
-	//순서 확인함 하기
+	if(thread_mlfqs){
+		thread_current ()->priority = new_priority;
+		return;
+	}else{
+		thread_current ()-> base_priority = new_priority;
+		priority_recovery(thread_current ());
+		//순서 확인함 하기
+	}
 	next_priority_yield();
 }
 
@@ -333,6 +375,10 @@ thread_get_priority (void) {
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) {
+	enum intr_level old_level;
+	old_level = intr_disable();
+	thread_current()->nice = nice;
+	intr_set_level(old_level);
 	/* TODO: Your implementation goes here */
 }
 
@@ -340,21 +386,25 @@ thread_set_nice (int nice UNUSED) {
 int
 thread_get_nice (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	return FP_TO_INT(FP_MUL_INT(load_avg, 100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	int a = thread_current()->recent_cpu;
+	int b = FP_MUL_INT(thread_current()->recent_cpu, 100);
+	int c = FP_TO_INT(FP_MUL_INT(thread_current()->recent_cpu, 100));
+	int d = 100;
+	return FP_TO_INT(FP_MUL_INT(thread_current()->recent_cpu, 100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -685,3 +735,61 @@ void priority_recovery(struct thread *curr){
 		curr->priority = curr->base_priority;
 	}
 }
+
+void calculating_load_avg(void){
+	int a = FP_DIV(INT_TO_FP(59), INT_TO_FP(60));
+	int b = FP_DIV(INT_TO_FP(1), INT_TO_FP(60));
+	int avg =  FP_MUL(a, load_avg);
+	int ready = FP_MUL_INT(b, ready_threads());
+	load_avg = FP_ADD(avg, ready);
+}
+
+int ready_threads(void){
+	struct thread *t = thread_current ();
+	if(t==idle_thread){
+		return list_size(&ready_list);
+	}else{
+		return list_size(&ready_list)+1;
+	}
+}
+
+void calculating_recent_cpu(struct thread *curr){
+	int a = FP_DIV(FP_MUL_INT(load_avg, 2),  FP_ADD_INT(FP_MUL_INT(load_avg, 2), 1));
+	curr->recent_cpu = FP_ADD_INT(FP_MUL(a, curr->recent_cpu), curr->nice);
+}
+
+void calculating_priority(struct thread *curr){
+	curr->priority = PRI_MAX - FP_TO_INT(FP_DIV_INT(curr->recent_cpu, 4)) - (curr->nice * 2);
+}
+
+//recent_cpu 재계산 함수
+void re_calculating(void){
+	struct thread *curr =thread_current();
+	if(curr!=idle_thread){
+		calculating_recent_cpu(curr);
+		calculating_priority(curr);
+	}
+
+	if(!list_empty (&ready_list)){
+		struct list_elem *curr_elem = list_front(&ready_list);
+
+		while(curr_elem != list_end(&ready_list)){
+			curr = list_entry(curr_elem, struct thread, elem);
+			calculating_recent_cpu(curr);
+			calculating_priority(curr);
+			curr_elem = list_next(&curr->elem);
+		}
+	}
+
+	if(!list_empty (&sleep_list)){
+		struct list_elem *curr_elem = list_front(&sleep_list);
+
+		while(curr_elem != list_end(&sleep_list)){
+			curr = list_entry(curr_elem, struct thread, elem);
+			calculating_recent_cpu(curr);
+			calculating_priority(curr);
+			curr_elem = list_next(&curr->elem);
+		}
+	}
+}
+

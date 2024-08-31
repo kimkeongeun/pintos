@@ -196,7 +196,7 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!lock_held_by_current_thread (lock));
 
 	//잠겨있다면
-	if(lock->holder){
+	if(lock->holder && !thread_mlfqs){
 		struct thread *curr = thread_current ();
 
 		curr->mylock = lock;
@@ -250,19 +250,15 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
-	
-	struct thread *curr = thread_current();
 
-	//리스트가 차 있음. 즉, 기부받은 적이 있음.
-	while(!list_empty(&lock->holder->donation_list)){
 
+		//리스트가 차 있음. 즉, 기부받은 적이 있음.
+	while(!list_empty(&lock->holder->donation_list) && !thread_mlfqs){
 		struct thread *donation_thread = list_entry (list_front (&lock->holder->donation_list), struct thread, donation_elem);
 
-		//원하는 락이 해제되었는지? 
-		//한번만 돌면 안되고, 해당 락을 전부 해야함. 
+		//원하는 락이 해제되었는지? 한번만 돌면 안되고, 해제된 락을 소유한 스레드는 전부 지워야함. 
 		if(donation_thread->mylock == lock || donation_thread->mylock->holder == NULL){
-			//우선순위 복구
-			priority_recovery(donation_thread);
+			priority_recovery(donation_thread); //우선순위 복구
 			list_remove(&donation_thread->donation_elem);
 		}else{
 			break;
@@ -271,8 +267,10 @@ lock_release (struct lock *lock) {
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
-	priority_recovery(curr);
-	next_priority_yield();
+	if(!thread_mlfqs){
+		priority_recovery(thread_current());
+		next_priority_yield();
+	}
 }
 
 
@@ -333,7 +331,6 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-	//list_insert_ordered(&cond->waiters, &waiter.elem, compare_wake_time, NULL);
 	list_push_back (&cond->waiters, &waiter.elem);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);

@@ -101,7 +101,7 @@ timer_sleep (int64_t ticks) {
 	//1-1. 지금 스레드와 깨울 시간을 넣으면, 
 	//대기 리스트에 추가하고 블록 상태로 변경하는 함수를 만들 것
 	if (ticks <= 0) {
-    return;
+    	return;
   	}
 
 	enum intr_level old_level = intr_disable();
@@ -137,6 +137,12 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
+	thread_current()->recent_cpu += (1 << 14);
+	if(thread_mlfqs && ticks%TIMER_FREQ==0){
+	//모든 스레드에 대해 recent_cpu 재계산
+		calculating_load_avg();
+		re_calculating();
+	}
 	thread_tick ();
 	thread_wakeup(ticks);
 }

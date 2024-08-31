@@ -99,6 +99,9 @@ struct thread {
 	struct lock *mylock; //내가 원하는 lock 
 	struct list_elem donation_elem; //기부리스트 관리용
 
+	int recent_cpu;
+	int nice;
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
@@ -120,6 +123,7 @@ struct thread {
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+int load_avg;
 
 void thread_init (void);
 void thread_start (void);
@@ -158,4 +162,12 @@ bool compare_donation_priority (const struct list_elem *a, const struct list_ele
 void next_priority_yield(void);
 void change_priority(struct thread *t1, struct thread *t2);
 void priority_recovery(struct thread *curr);
+
+
+void calculating_load_avg(void);
+int ready_threads(void);
+void calculating_recent_cpu(struct thread *curr);
+void calculating_priority(struct thread *curr);
+void re_calculating(void);
+
 #endif /* threads/thread.h */
