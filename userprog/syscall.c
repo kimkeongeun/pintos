@@ -27,7 +27,6 @@ int remove (const char *file);
 void seek (int fd, unsigned position);
 void page_check(struct thread *t, struct intr_frame *f, uint64_t *r);
 tid_t fork (const char *thread_name, struct intr_frame *f);
-int wait(int pid);
 int exec(const char *cmd_line);
 
 struct lock filesys_lock;
@@ -143,7 +142,7 @@ write (int fd, void *buffer, unsigned size){
 	if(fd == 1 && buffer!=NULL){
 		putbuf(buffer, size);
 		return size;
-	}else if(fd>2 && fd<10 && buffer!=NULL){
+	}else if(fd>2 && fd<FD_MAX && buffer!=NULL){
 		if(curr->fd_list[fd]){
 			lock_acquire(&filesys_lock);
 			//읽고 반환.
@@ -168,7 +167,7 @@ open (const char *file) {
 	if(f==NULL)
 		return -1;
 	
-	for(int i=3;i<10;i++){
+	for(int i=3;i<FD_MAX;i++){
 		if(curr->fd_list[i] == NULL){
 			if (!strcmp(thread_name(), file))
 				file_deny_write(f);
@@ -176,7 +175,7 @@ open (const char *file) {
 			return i;
 		}
 	}
-
+	file_close(f); 
 
 	return -1;
 }
@@ -211,7 +210,7 @@ int read_page (int fd, void *buffer, unsigned size){
 	if(fd==0 && buffer!=NULL){
 		input_getc();
 		return size;
-	}else if(fd>2 && fd<10 && buffer!=NULL){
+	}else if(fd>2 && fd<FD_MAX && buffer!=NULL){
 		//fd 테이블에서 페이지 포인터를 넘김
 		
 		if(curr->fd_list[fd]){
@@ -228,7 +227,7 @@ int read_page (int fd, void *buffer, unsigned size){
 
 int file_size (int fd){
 	struct thread *curr = thread_current ();
-	if(fd>2 && fd<10){
+	if(fd>2 && fd<FD_MAX){
 		return file_length(curr->fd_list[fd]);
 	}
 	return -1;
@@ -236,7 +235,7 @@ int file_size (int fd){
 
 void close (int fd) {
 	struct thread *curr = thread_current ();
-	if(fd>2 && fd<10){
+	if(fd>2 && fd<FD_MAX){
 		file_close(curr->fd_list[fd]);
 		curr->fd_list[fd]=NULL;
 	}
@@ -244,7 +243,7 @@ void close (int fd) {
 
 unsigned tell (int fd) {
 	struct thread *curr = thread_current ();
-	if(fd>2 && fd<10 && curr->fd_list[fd]){
+	if(fd>2 && fd<FD_MAX && curr->fd_list[fd]){
 		return file_tell(curr->fd_list[fd]);
 	}
 	return -1;
@@ -252,7 +251,7 @@ unsigned tell (int fd) {
 
 void seek (int fd, unsigned position){
 	struct thread *curr = thread_current ();
-	if(fd>2 && fd<10 && curr->fd_list[fd] && position>= 0){
+	if(fd>2 && fd<FD_MAX && curr->fd_list[fd] && position>= 0){
 		return file_seek(curr->fd_list[fd], position);
 	}
 	return -1;
@@ -273,6 +272,10 @@ int exec(const char *cmd_line)
     // process_exec 함수 안에서 filename을 변경해야 하므로
     // 커널 메모리 공간에 cmd_line의 복사본을 만든다.
     // (현재는 const char* 형식이기 때문에 수정할 수 없다.)
+
+	if(cmd_line==NULL){
+		error_exit(thread_current ());
+	}
     char *cmd_line_copy;
     cmd_line_copy = palloc_get_page(0);
     if (cmd_line_copy == NULL)

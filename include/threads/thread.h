@@ -28,6 +28,7 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+#define FD_MAX 10
 
 /* A kernel thread or user process.
  *
@@ -123,7 +124,7 @@ struct thread {
 	int exit_code;
 
 	//파일 디스크립터
-	void *fd_list[10];
+	void *fd_list[FD_MAX];
 	
 
 #endif

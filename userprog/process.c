@@ -19,6 +19,10 @@
 #include "threads/vaddr.h"
 #include "intrinsic.h"
 #include "threads/synch.h"
+
+#include "userprog/syscall.h"
+
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -202,7 +206,7 @@ __do_fork (void *aux) {
 	 * TODO:       the resources of parent.*/	
 
 	//부모의 파일 디스크립터 복제
-	for (int i = 0; i < 10; i++) {
+	for (int i = 0; i < FD_MAX; i++) {
 		struct file *file = parent->fd_list[i];
 		if (file == NULL)
 			continue; //파일 비어있으면 넘김
@@ -211,7 +215,7 @@ __do_fork (void *aux) {
 		bool found = false;
 		if (!found) {
 			struct file *new_file;
-			if (file > 2){
+			if (file > 2 ){
 				new_file = file_duplicate(file);
 				current->fd_list[i] = new_file;
 			}
@@ -287,10 +291,11 @@ process_wait (tid_t child_tid UNUSED) {
         return -1;
    
     sema_down(&t->wait_sema);
+	tid_t a = t->exit_code;
     list_remove(&t->child_elem);
     sema_up(&t->exit_sema);
 
-    return t->exit_code;
+    return a;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -306,18 +311,16 @@ process_exit () {
 	}
 
     //1) 열었던 파일 다 닫음(파일 디스크립터 활용)
-    for (int i = 3; i < 10; i++)
+    for (int i = 0; i <= FD_MAX; i++)
         close(i);
 
-    //file_close(curr->running); // 2) 현재 실행 중인 파일도 닫는다.
-
-	//자식을 기다리지 않을 것이므로, 리스트에 있는 자식들의 exit_sema를 모두 up해줌.
+	//모든 자식을 기다려봄
     for (struct list_elem *e = list_begin(&curr->child_list); e != list_end(&curr->child_list); e = list_next(e))
     {
         struct thread *t = list_entry(e, struct thread, child_elem);
-		sema_up(&t->exit_sema);
+		//sema_up(&t->exit_sema);
+		wait(t->tid);
     }
-
 
     process_cleanup();
 

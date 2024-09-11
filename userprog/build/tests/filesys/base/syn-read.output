@@ -4,7 +4,7 @@ Kernel command line: -q -f put syn-read put child-syn-read run syn-read
 Pintos booting with: 
 	base_mem: 0x0 ~ 0x9fc00 (Usable: 639 kB)
 	ext_mem: 0x100000 ~ 0x13e0000 (Usable: 19,328 kB)
-Calibrating timer...  235,520,000 loops/s.
+Calibrating timer...  55,603,200 loops/s.
 hd0:0: detected 321 sector (160 kB) disk, model "QEMU HARDDISK", serial "QM00001"
 hd0:1: detected 20,160 sector (9 MB) disk, model "QEMU HARDDISK", serial "QM00002"
 hd1:0: detected 225 sector (112 kB) disk, model "QEMU HARDDISK", serial "QM00003"
@@ -51,12 +51,12 @@ child-syn-read: exit(4)
 (syn-read) end
 syn-read: exit(0)
 Execution of 'syn-read' complete.
-Timer: 385 ticks
-Thread: 232 idle ticks, 31 kernel ticks, 123 user ticks
+Timer: 395 ticks
+Thread: 252 idle ticks, 30 kernel ticks, 113 user ticks
 hd0:0: 0 reads, 0 writes
 hd0:1: 10969 reads, 504 writes
 hd1:0: 225 reads, 0 writes
-Console: 2326 characters output
+Console: 2325 characters output
 Keyboard: 0 keys pressed
 Exception: 0 page faults
 Powering off...
