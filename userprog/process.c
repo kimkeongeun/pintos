@@ -199,9 +199,7 @@ __do_fork (void *aux) {
 	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
-
-	process_init ();
+	 * TODO:       the resources of parent.*/	
 
 	//부모의 파일 디스크립터 복제
 	for (int i = 0; i < 10; i++) {
@@ -796,4 +794,3 @@ setup_stack (struct intr_frame *if_) {
 	return success;
 }
 #endif /* VM */
-

@@ -25,7 +25,6 @@ int file_size (int fd);
 int read_page (int fd, void *buffer, unsigned size);
 int remove (const char *file);
 void seek (int fd, unsigned position);
-void close (int fd);
 void page_check(struct thread *t, struct intr_frame *f, uint64_t *r);
 tid_t fork (const char *thread_name, struct intr_frame *f);
 int wait(int pid);
@@ -153,7 +152,6 @@ write (int fd, void *buffer, unsigned size){
 			return a;	
 		}
 	}else{
-		printf("실패");
 		return -1;
 	}
 }
@@ -169,11 +167,11 @@ open (const char *file) {
 	struct file *f = filesys_open (file);
 	if(f==NULL)
 		return -1;
-
-	
 	
 	for(int i=3;i<10;i++){
 		if(curr->fd_list[i] == NULL){
+			if (!strcmp(thread_name(), file))
+				file_deny_write(f);
 			curr->fd_list[i] = f;
 			return i;
 		}
@@ -195,6 +193,11 @@ int wait(int pid)
 }
 
 void page_check(struct thread *t, struct intr_frame *f, uint64_t *r){
+	if(r>(uint64_t)USER_STACK){
+		f->R.rax = -1;
+		error_exit(t);
+	}
+	
 	if(pml4_get_page (t->pml4, r) == NULL){
 		f->R.rax = -1;
 		error_exit(t);				
@@ -213,7 +216,7 @@ int read_page (int fd, void *buffer, unsigned size){
 		
 		if(curr->fd_list[fd]){
 			lock_acquire(&filesys_lock);
-			int a = file_read(curr->fd_list[fd], buffer, size);
+			int a = file_read(curr->fd_list[fd], buffer, size);		
 			lock_release(&filesys_lock);
 			return a;	
 		}
@@ -234,6 +237,7 @@ int file_size (int fd){
 void close (int fd) {
 	struct thread *curr = thread_current ();
 	if(fd>2 && fd<10){
+		file_close(curr->fd_list[fd]);
 		curr->fd_list[fd]=NULL;
 	}
 }
