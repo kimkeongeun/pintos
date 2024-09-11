@@ -28,6 +28,7 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 static struct list sleep_list;
+static struct list all_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -135,6 +136,7 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&sleep_list);
+	list_init (&all_list);
 	list_init (&destruction_req);
 	
 	//멀티레벨 위함
@@ -184,7 +186,7 @@ thread_tick (void) {
 	/* Enforce preemption. */
 	if (++thread_ticks >= TIME_SLICE){
 		if(t!=idle_thread)
-			calculating_priority(t);
+			re_calculating_priority();
 		intr_yield_on_return ();
 	}
 }
@@ -245,6 +247,8 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+
+	list_push_back(&thread_current()->child_list, &t->child_elem);
 
 	/* Add to run queue. */
 	thread_unblock (t);
@@ -328,6 +332,8 @@ thread_exit (void) {
 	process_exit ();
 #endif
 
+	list_remove(&thread_current()->all_elem);
+
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable ();
@@ -358,11 +364,11 @@ thread_set_priority (int new_priority) {
 	if(thread_mlfqs){
 		thread_current ()->priority = new_priority;
 		return;
-	}else{
-		thread_current ()-> base_priority = new_priority;
-		priority_recovery(thread_current ());
-		//순서 확인함 하기
 	}
+	
+	thread_current ()-> base_priority = new_priority;
+	priority_recovery(thread_current ());
+		//순서 확인함 하기
 	next_priority_yield();
 }
 
@@ -400,10 +406,6 @@ thread_get_load_avg (void) {
 int
 thread_get_recent_cpu (void) {
 	/* TODO: Your implementation goes here */
-	int a = thread_current()->recent_cpu;
-	int b = FP_MUL_INT(thread_current()->recent_cpu, 100);
-	int c = FP_TO_INT(FP_MUL_INT(thread_current()->recent_cpu, 100));
-	int d = 100;
 	return FP_TO_INT(FP_MUL_INT(thread_current()->recent_cpu, 100));
 }
 
@@ -475,6 +477,20 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->base_priority=priority; //자기 원래 우선순위 
 	t->mylock = NULL;
 	list_init(&t->donation_list); //기부 스레드 대기열
+
+	list_push_front(&all_list, &t->all_elem);
+	list_init(&(t->child_list));
+
+	sema_init(&t->fork_sema, 0);
+	sema_init(&t->exit_sema, 0);
+    sema_init(&t->wait_sema, 0);
+
+#ifdef USERPROG
+	t->exit = 0;
+	t->exit_code = 0;
+	memset(t->fd_list, 0, sizeof(t->fd_list));
+
+#endif
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -763,33 +779,56 @@ void calculating_priority(struct thread *curr){
 }
 
 //recent_cpu 재계산 함수
-void re_calculating(void){
+void re_calculating_recent_cpu(void){
 	struct thread *curr =thread_current();
 	if(curr!=idle_thread){
 		calculating_recent_cpu(curr);
-		calculating_priority(curr);
 	}
 
-	if(!list_empty (&ready_list)){
-		struct list_elem *curr_elem = list_front(&ready_list);
+	if(!list_empty (&all_list)){
+		struct list_elem *curr_elem = list_front(&all_list);
 
-		while(curr_elem != list_end(&ready_list)){
-			curr = list_entry(curr_elem, struct thread, elem);
+		while(curr_elem != list_end(&all_list)){
+			curr = list_entry(curr_elem, struct thread, all_elem);
 			calculating_recent_cpu(curr);
-			calculating_priority(curr);
-			curr_elem = list_next(&curr->elem);
-		}
-	}
-
-	if(!list_empty (&sleep_list)){
-		struct list_elem *curr_elem = list_front(&sleep_list);
-
-		while(curr_elem != list_end(&sleep_list)){
-			curr = list_entry(curr_elem, struct thread, elem);
-			calculating_recent_cpu(curr);
-			calculating_priority(curr);
-			curr_elem = list_next(&curr->elem);
+			curr_elem = list_next(&curr->all_elem);
 		}
 	}
 }
 
+
+void re_calculating_priority(void){
+	struct thread *curr =thread_current();
+	if(curr!=idle_thread){
+		calculating_priority(curr);
+	}
+
+	if(!list_empty (&all_list)){
+		struct list_elem *curr_elem = list_front(&all_list);
+
+		while(curr_elem != list_end(&all_list)){
+			curr = list_entry(curr_elem, struct thread, all_elem);
+			calculating_priority(curr);
+			curr_elem = list_next(&curr->all_elem);
+		}
+	}
+}
+
+
+// 자식리스트에서 해당 pid 검색
+struct thread *get_child_process(int pid)
+{
+    /* 자식 리스트에 접근하여 프로세스 디스크립터 검색 */
+    struct thread *cur = thread_current();
+    struct list *child_list = &cur->child_list;
+
+    for (struct list_elem *e = list_begin(child_list); e != list_end(child_list); e = list_next(e))
+    {
+        struct thread *t = list_entry(e, struct thread, child_elem);
+        /* 해당 pid가 존재하면 프로세스 디스크립터 반환 */
+        if (t->tid == pid)
+            return t;
+    }
+    /* 리스트에 존재하지 않으면 NULL 리턴 */
+    return NULL;
+}

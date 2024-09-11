@@ -17,11 +17,13 @@ static void do_format (void);
  * If FORMAT is true, reformats the file system. */
 void
 filesys_init (bool format) {
+	
 	filesys_disk = disk_get (0, 1);
 	if (filesys_disk == NULL)
 		PANIC ("hd0:1 (hdb) not present, file system initialization failed");
 
 	inode_init ();
+
 
 #ifdef EFILESYS
 	fat_init ();
@@ -33,10 +35,9 @@ filesys_init (bool format) {
 #else
 	/* Original FS */
 	free_map_init ();
-
-	if (format)
+	if (format){
 		do_format ();
-
+	}
 	free_map_open ();
 #endif
 }
@@ -61,6 +62,7 @@ bool
 filesys_create (const char *name, off_t initial_size) {
 	disk_sector_t inode_sector = 0;
 	struct dir *dir = dir_open_root ();
+
 	bool success = (dir != NULL
 			&& free_map_allocate (1, &inode_sector)
 			&& inode_create (inode_sector, initial_size)
@@ -106,13 +108,13 @@ filesys_remove (const char *name) {
 static void
 do_format (void) {
 	printf ("Formatting file system...");
-
 #ifdef EFILESYS
 	/* Create FAT and save it to the disk. */
 	fat_create ();
 	fat_close ();
 #else
 	free_map_create ();
+
 	if (!dir_create (ROOT_DIR_SECTOR, 16))
 		PANIC ("root directory creation failed");
 	free_map_close ();

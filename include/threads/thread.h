@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -104,10 +105,27 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	struct list_elem all_elem;
+
+	struct list child_list; 
+	struct list_elem child_elem;
+
+	struct semaphore fork_sema;
+	struct semaphore exit_sema;
+	struct semaphore wait_sema;
+
+	struct intr_frame parent_if;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	int exit;
+	int exit_code;
+
+	//파일 디스크립터
+	void *fd_list[10];
+	
+
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -118,6 +136,9 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -168,6 +189,8 @@ void calculating_load_avg(void);
 int ready_threads(void);
 void calculating_recent_cpu(struct thread *curr);
 void calculating_priority(struct thread *curr);
-void re_calculating(void);
+void re_calculating_recent_cpu(void);
+void re_calculating_priority(void);
 
+struct thread *get_child_process(int pid);
 #endif /* threads/thread.h */

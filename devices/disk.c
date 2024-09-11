@@ -248,6 +248,8 @@ disk_write (struct disk *d, disk_sector_t sec_no, const void *buffer) {
 	sema_down (&c->completion_wait);
 	d->write_cnt++;
 	lock_release (&c->lock);
+	
+	
 }
 
 /* Disk detection and identification. */

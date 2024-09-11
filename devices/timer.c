@@ -141,7 +141,7 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	if(thread_mlfqs && ticks%TIMER_FREQ==0){
 	//모든 스레드에 대해 recent_cpu 재계산
 		calculating_load_avg();
-		re_calculating();
+		re_calculating_recent_cpu();
 	}
 	thread_tick ();
 	thread_wakeup(ticks);

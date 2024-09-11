@@ -66,6 +66,7 @@ inode_init (void) {
  * Returns false if memory or disk allocation fails. */
 bool
 inode_create (disk_sector_t sector, off_t length) {
+	
 	struct inode_disk *disk_inode = NULL;
 	bool success = false;
 
@@ -86,8 +87,9 @@ inode_create (disk_sector_t sector, off_t length) {
 				static char zeros[DISK_SECTOR_SIZE];
 				size_t i;
 
-				for (i = 0; i < sectors; i++) 
+				for (i = 0; i < sectors; i++) {
 					disk_write (filesys_disk, disk_inode->start + i, zeros); 
+				}
 			}
 			success = true; 
 		} 

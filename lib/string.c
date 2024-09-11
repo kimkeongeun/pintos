@@ -270,7 +270,6 @@ memset (void *dst_, int value, size_t size) {
 size_t
 strlen (const char *string) {
 	const char *p;
-
 	ASSERT (string);
 
 	for (p = string; *p != '\0'; p++)

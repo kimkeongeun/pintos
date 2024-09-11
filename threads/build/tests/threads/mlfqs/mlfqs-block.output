@@ -4,22 +4,18 @@ Kernel command line: -q -mlfqs run mlfqs-block
 Pintos booting with: 
 	base_mem: 0x0 ~ 0x9fc00 (Usable: 639 kB)
 	ext_mem: 0x100000 ~ 0x13e0000 (Usable: 19,328 kB)
-Calibrating timer...  157,081,600 loops/s.
+Calibrating timer...  215,040,000 loops/s.
 Boot complete.
 Executing 'mlfqs-block':
 (mlfqs-block) begin
 (mlfqs-block) Main thread acquiring lock.
 (mlfqs-block) Main thread creating block thread, sleeping 25 seconds...
 (mlfqs-block) Block thread spinning for 20 seconds...
-(mlfqs-block) Block thread acquiring lock...
-(mlfqs-block) Main thread spinning for 5 seconds...
-(mlfqs-block) Main thread releasing lock.
-(mlfqs-block) ...got it.
-(mlfqs-block) Block thread should have already acquired lock.
-(mlfqs-block) end
-Execution of 'mlfqs-block' complete.
-Timer: 3023 ticks
-Thread: 500 idle ticks, 2523 kernel ticks, 0 user ticks
-Console: 819 characters output
-Keyboard: 0 keys pressed
-Powering off...
+Kernel PANIC at ../../lib/kernel/list.c:78 in list_next(): assertion `is_head (elem) || is_interior (elem)' failed.
+Call stack: 0x8004213f3b 0x80042141b7 0x80042080b6 0x800420dce1 0x8004209127 0x8004209545 0x80042082a7 0x800420daa4 0x800420dac2 0x800421b56a 0x8004207375.
+The `backtrace' program can make call stacks useful.
+Read "Backtraces" in the "Debugging Tools" chapter
+of the Pintos documentation for more information.
+Timer: 100 ticks
+Thread: 0 idle ticks, 99 kernel ticks, 0 user ticks
+Console: 
