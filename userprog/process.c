@@ -18,6 +18,11 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/synch.h"
+
+#include "userprog/syscall.h"
+
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -50,6 +55,10 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	//파일 이름 이쁘게 잘리게 처리해줌
+	char *save;
+	char *token = strtok_r(file_name, " ", &save);
+
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -76,8 +85,30 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+
+	struct thread *curr = thread_current();
+	memcpy(&curr->parent_if, if_, sizeof(struct intr_frame));
+
+	//지금 실행중인 스레드 대신에 받아온 curr을 바로 넣어버림.
+	//근본적으로 같긴 하나, 중간에 스케쥴링이 바뀌어도 안전?
+	//별차이없나?
+	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, curr);
+
+	//반환되는 tid가 없을경우 error
+	if (tid == TID_ERROR) {
+		return TID_ERROR;
+	}
+
+	//자식 스레드의 fork_sema를 가져와서 다운함. 자식이 복제가 다 되기 전에 리턴되는 것 방지.
+	struct thread *child = get_child_process(tid);
+	sema_down(&child->fork_sema);
+
+	//오류 체크
+	if (child->exit == -1) {
+		return TID_ERROR;
+	}
+
+	return tid;
 }
 
 #ifndef VM
@@ -92,21 +123,37 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	if (is_kernel_vaddr(va)) {
+		return true;
+	}
 
 	/* 2. Resolve VA from the parent's page map level 4. */
-	parent_page = pml4_get_page (parent->pml4, va);
+	parent_page = pml4_get_page (parent->pml4, va); //원래있었음
+	if (parent_page == NULL) {
+		return false;
+	}
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
 
+	newpage = palloc_get_page(PAL_USER);
+	if (newpage == NULL) {
+		//printf("[fork-duplicate] failed to palloc new page\n"); // #ifdef DEBUG
+		return false;
+	}
+
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+	memcpy(newpage, parent_page, PGSIZE);
+	writable = is_writable(pte);
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		//printf("Failed to map user virtual page to given physical frame\n"); // #ifdef DEBUG
+		return false;
 	}
 	return true;
 }
@@ -122,13 +169,21 @@ __do_fork (void *aux) {
 	struct thread *parent = (struct thread *) aux;
 	struct thread *current = thread_current ();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
+	//process_fork() 를 통해 parent_if를 가져오는 것이 과제.
 	struct intr_frame *parent_if;
 	bool succ = true;
+	parent_if = &parent->parent_if; //할당
 
 	/* 1. Read the cpu context to local stack. */
+	//부모 cpu에 있는걸 자신. 그러니까 if로 복사.
+	//지금은 parent_if가 비어있으므로 할당해줘야함.
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
 
+	//이거 왜하지?
+	if_.R.rax = 0;
+
 	/* 2. Duplicate PT */
+	//자식의 pt를 만들고, 복사해옴.
 	current->pml4 = pml4_create();
 	if (current->pml4 == NULL)
 		goto error;
@@ -139,6 +194,7 @@ __do_fork (void *aux) {
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
 #else
+	//duplicate_pte 함수는 부모 프로세스의 가생 메모리 주소 공간을 복사해옴.
 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
 		goto error;
 #endif
@@ -147,15 +203,37 @@ __do_fork (void *aux) {
 	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
+	 * TODO:       the resources of parent.*/	
 
-	process_init ();
+	//부모의 파일 디스크립터 복제
+	for (int i = 0; i < FD_MAX; i++) {
+		struct file *file = parent->fd_list[i];
+		if (file == NULL)
+			continue; //파일 비어있으면 넘김
+
+		//* 파일 객체 복사시 `file_duplicate` 사용 (include/filesys/file.h)
+		bool found = false;
+		if (!found) {
+			struct file *new_file;
+			if (file > 2 ){
+				new_file = file_duplicate(file);
+				current->fd_list[i] = new_file;
+			}
+		}
+	}
+
+	// 이 함수가 성공적으로 복제될 때까지 fork()의 결과가 반환되면 안됨.
+	// 부모는 up을 기다리고 있고, 다 했으므로 세마 업 해줌.
+	sema_up(&current->fork_sema);
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
 		do_iret (&if_);
 error:
-	thread_exit ();
+	current->exit = TID_ERROR;
+	sema_up(&current->fork_sema);
+	current->exit_code = -1;
+	thread_exit();
 }
 
 /* Switch the current execution context to the f_name.
@@ -204,19 +282,51 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	return -1;
+
+	//각 스레드별로 만들어질때 sema가 있고, 그걸 체크한다면?
+
+	struct thread *t = get_child_process(child_tid);
+    
+	if (t == NULL)
+        return -1;
+   
+    sema_down(&t->wait_sema);
+	tid_t a = t->exit_code;
+    list_remove(&t->child_elem);
+    sema_up(&t->exit_sema);
+
+    return a;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
-process_exit (void) {
+process_exit () {
 	struct thread *curr = thread_current ();
 	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
+	 * TODO: Implement process termination message (see project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
-	process_cleanup ();
+	if(curr->exit==1){
+		printf ("%s: exit(%d)\n", curr->name, curr->exit_code);
+	}
+
+    //1) 열었던 파일 다 닫음(파일 디스크립터 활용)
+    for (int i = 0; i <= FD_MAX; i++)
+        close(i);
+
+	//모든 자식을 기다려봄
+    for (struct list_elem *e = list_begin(&curr->child_list); e != list_end(&curr->child_list); e = list_next(e))
+    {
+        struct thread *t = list_entry(e, struct thread, child_elem);
+		//sema_up(&t->exit_sema);
+		wait(t->tid);
+    }
+
+    process_cleanup();
+
+    // 3) 자식이 종료될 때까지 대기하고 있는 부모에게 signal을 보낸다.
+    sema_up(&curr->wait_sema);
+    sema_down(&curr->exit_sema);
 }
 
 /* Free the current process's resources. */
@@ -335,6 +445,19 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	process_activate (thread_current ());
 
+	char *argv[128];
+	char *save;
+	char *token = strtok_r(file_name, " ", &save);
+	int argc=0;
+
+	for(argc; token!=NULL; argc++){
+		argv[argc] = token;
+		token = strtok_r(NULL,  " ", &save);
+	}
+
+	file_name = argv[0];
+ 
+
 	/* Open executable file. */
 	file = filesys_open (file_name);
 	if (file == NULL) {
@@ -416,6 +539,43 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+
+	//유저 스택 상단에서부터 해당 값을 넣음
+	char *us = USER_STACK;
+
+	//printf("argc : %d, us: %s \n", argc, argv[0]);
+
+	//역순으로 스택에 저장.
+	for(int i = argc; i > 0; i--) {
+		size_t len = strlen(argv[i-1]) + 1;  // null  포함
+		us = (char *)((uintptr_t)us - len & ~7ull);  // 8바이트 정렬
+		strlcpy(us, argv[i-1], len);
+	}
+	
+	// argv의 포인터를 저장하기 위한 공간 확보
+	char **argv_stack = (char **)(((uintptr_t)us - (argc + 1) * sizeof(char *)) & ~7ull);
+	
+
+	// 각 인수의 포인터를 스택에 저장
+	for (int i = 0; i < argc; i++) {
+		argv_stack[i] = us; // 현재 us 포인터를 argv_stack[i]에 저장
+	    size_t len = strlen(us) + 1;
+		// us를 다음 문자열의 시작 위치로 이동
+    	us = (char *)((uintptr_t)us + ((len + 7) & ~7ull)); 
+	}
+	argv_stack[argc] = NULL;  // 마지막 인수는 NULL로 설정
+
+	
+	//이걸 다시 넣어줌
+	if_->R.rsi = (uint64_t) argv_stack;
+	if_->R.rdi = argc;
+
+	// Return address
+	// 스택 포인터를 argv_stack 바로 위로 설정
+	if_->rsp = (uint64_t)((uintptr_t)(argv_stack - 1) & ~7ull);  
+	*(void **)if_->rsp = 0;
+
+	/*----- 여기까지 내가 만든 코드 --------*/
 
 	success = true;
 

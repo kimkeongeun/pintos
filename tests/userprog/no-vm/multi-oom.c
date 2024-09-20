@@ -120,7 +120,11 @@ make_children (void) {
 
     snprintf (child_name, sizeof child_name, "%s_%d_%s", "child", i, "O");
     pid = fork(child_name);
+    // if(pid!=0){
+    //   msg ("fork함 : %d", pid);
+    // }
     if (pid < 0) {
+      //msg ("pid가 작음. : %d, %d, %s", i, pid, child_name);
       exit (i);
     } else if (pid == 0) {
       consume_some_resources();
@@ -129,6 +133,7 @@ make_children (void) {
     }
   }
 
+  //msg ("기다림 pid : %d", pid);
   int depth = wait (pid);
   if (depth < 0)
 	  fail ("Should return > 0.");

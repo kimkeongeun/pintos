@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -27,6 +28,7 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+#define FD_MAX 10
 
 /* A kernel thread or user process.
  *
@@ -92,12 +94,39 @@ struct thread {
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
 
+	int64_t wakeup_time;
+	
+	int base_priority; //자기 원래 우선순위 
+	struct list donation_list; //기부자 리스트
+	struct lock *mylock; //내가 원하는 lock 
+	struct list_elem donation_elem; //기부리스트 관리용
+
+	int recent_cpu;
+	int nice;
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	struct list_elem all_elem;
+
+	struct list child_list; 
+	struct list_elem child_elem;
+
+	struct semaphore fork_sema;
+	struct semaphore exit_sema;
+	struct semaphore wait_sema;
+
+	struct intr_frame parent_if;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	int exit;
+	int exit_code;
+
+	//파일 디스크립터
+	void *fd_list[FD_MAX];
+	
+
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -109,10 +138,14 @@ struct thread {
 	unsigned magic;                     /* Detects stack overflow. */
 };
 
+
+
+
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+int load_avg;
 
 void thread_init (void);
 void thread_start (void);
@@ -143,4 +176,22 @@ int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
 
+void thread_sleep (int64_t wake_time);
+void thread_wakeup (int64_t current_ticks);
+bool compare_wake_time (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+bool compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+bool compare_donation_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+void next_priority_yield(void);
+void change_priority(struct thread *t1, struct thread *t2);
+void priority_recovery(struct thread *curr);
+
+
+void calculating_load_avg(void);
+int ready_threads(void);
+void calculating_recent_cpu(struct thread *curr);
+void calculating_priority(struct thread *curr);
+void re_calculating_recent_cpu(void);
+void re_calculating_priority(void);
+
+struct thread *get_child_process(int pid);
 #endif /* threads/thread.h */

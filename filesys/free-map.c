@@ -69,6 +69,7 @@ free_map_create (void) {
 		PANIC ("free map creation failed");
 
 	/* Write bitmap to file. */
+	
 	free_map_file = file_open (inode_open (FREE_MAP_SECTOR));
 	if (free_map_file == NULL)
 		PANIC ("can't open free map");
